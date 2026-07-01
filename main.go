@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -18,6 +19,7 @@ func main() {
 		if !isIgnoredFileDir(path) && strings.Contains(path, "package.json") {
 			parent := filepath.Dir(path)
 			nodeProjects = append(nodeProjects, parent)
+			fmt.Printf("project: %s\n", parent)
 			return filepath.SkipDir
 		}
 		return nil
@@ -37,7 +39,7 @@ func main() {
 
 func isIgnoredFileDir(path string) bool {
 	switch {
-	case strings.HasPrefix(path, "."):
+	case strings.Contains(path, ".next"):
 		fallthrough
 	case strings.Contains(path, "node_modules"):
 		return true
