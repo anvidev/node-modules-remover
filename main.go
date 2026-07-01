@@ -11,8 +11,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+type ProjectDiscoveredMsg struct {
+	project NodeProject
+}
+
+type DicoveryDoneMsg struct{}
+
 type Model struct {
-	projects []NodeProject
+	discovering bool
+	projects    []NodeProject
 
 	cursor   int
 	selected map[int]struct{}
@@ -32,6 +39,12 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+
+	case ProjectDiscoveredMsg:
+		m.projects = append(m.projects, msg.project)
+
+	case DicoveryDoneMsg:
+		m.discovering = false
 
 	case tea.KeyPressMsg:
 
@@ -66,7 +79,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() tea.View {
 	var s strings.Builder
 
-	s.WriteString("Select projects to delete node modules\n\n")
+	discovering := "discovering"
+	if !m.discovering {
+		discovering = "finished"
+	}
+
+	fmt.Fprintf(&s, "Select projects to delete node modules [%s]\n\n", discovering)
 
 	for i, project := range m.projects {
 		cursor := " "
@@ -89,44 +107,46 @@ func (m Model) View() tea.View {
 
 func main() {
 	m := Model{
-		projects: make([]NodeProject, 0),
-		selected: make(map[int]struct{}),
+		discovering: true,
+		projects:    make([]NodeProject, 0),
+		selected:    make(map[int]struct{}),
 	}
 
-	root := "."
+	p := tea.NewProgram(m)
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if !isIgnoredFileDir(path) && strings.Contains(path, "package.json") {
-			parentPath := filepath.Dir(path)
-			projectName := filepath.Base(parentPath)
-			hasNodeModules := true
-			var nodeModulesSize int64
+	go func() {
+		_ = filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+			if !isIgnoredFileDir(path) && strings.Contains(path, "package.json") {
+				parentPath := filepath.Dir(path)
+				projectName := filepath.Base(parentPath)
+				hasNodeModules := true
+				var nodeModulesSize int64
 
-			nodeModulesInfo, err := os.Stat(parentPath + "/node_modules")
-			if err != nil {
-				hasNodeModules = false
-			} else {
-				nodeModulesSize = nodeModulesInfo.Size()
+				nodeModulesInfo, err := os.Stat(parentPath + "/node_modules")
+				if err != nil {
+					hasNodeModules = false
+				} else {
+					nodeModulesSize = nodeModulesInfo.Size()
+				}
+
+				project := NodeProject{
+					Name:            projectName,
+					RelativePath:    parentPath,
+					HasNodeModules:  hasNodeModules,
+					NodeModulesSize: nodeModulesSize,
+				}
+
+				p.Send(ProjectDiscoveredMsg{project})
+
+				return filepath.SkipDir
 			}
+			return nil
+		})
 
-			project := NodeProject{
-				Name:            projectName,
-				RelativePath:    parentPath,
-				HasNodeModules:  hasNodeModules,
-				NodeModulesSize: nodeModulesSize,
-			}
+		p.Send(DicoveryDoneMsg{})
+	}()
 
-			m.projects = append(m.projects, project)
-			return filepath.SkipDir
-		}
-		return nil
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = tea.NewProgram(m).Run()
-	if err != nil {
+	if _, err := p.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
