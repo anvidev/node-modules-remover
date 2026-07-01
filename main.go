@@ -9,17 +9,43 @@ import (
 	"strings"
 )
 
+type NodeProject struct {
+	Name            string
+	RelativePath    string
+	HasNodeModules  bool
+	NodeModulesSize int64
+	ErrorMessage    string
+}
+
 func main() {
 	root := "."
 	clean := false
 
-	nodeProjects := []string{}
+	nodeProjects := []NodeProject{}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if !isIgnoredFileDir(path) && strings.Contains(path, "package.json") {
-			parent := filepath.Dir(path)
-			nodeProjects = append(nodeProjects, parent)
-			fmt.Printf("project: %s\n", parent)
+			parentPath := filepath.Dir(path)
+			projectName := filepath.Base(parentPath)
+			hasNodeModules := true
+			var nodeModulesSize int64
+
+			nodeModulesInfo, err := os.Stat(parentPath + "/node_modules")
+			if err != nil {
+				hasNodeModules = false
+			} else {
+				nodeModulesSize = nodeModulesInfo.Size()
+			}
+
+			project := NodeProject{
+				Name:            projectName,
+				RelativePath:    parentPath,
+				HasNodeModules:  hasNodeModules,
+				NodeModulesSize: nodeModulesSize,
+			}
+
+			nodeProjects = append(nodeProjects, project)
+			fmt.Printf("project: %+v\n", project)
 			return filepath.SkipDir
 		}
 		return nil
@@ -30,7 +56,7 @@ func main() {
 
 	if clean {
 		for _, project := range nodeProjects {
-			if err := deleteAllInPath(project + "/node_modules"); err != nil {
+			if err := deleteAllInPath(project.RelativePath + "/node_modules"); err != nil {
 				log.Fatal("remove project error", err)
 			}
 		}
