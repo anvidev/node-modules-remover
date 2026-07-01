@@ -29,7 +29,7 @@ type NodeProject struct {
 	Name            string
 	RelativePath    string
 	HasNodeModules  bool
-	NodeModulesSize int64
+	NodeModulesSize float64
 	ErrorMessage    string
 }
 
@@ -97,7 +97,7 @@ func (m Model) View() tea.View {
 			checked = "x"
 		}
 
-		fmt.Fprintf(&s, "%s [%s] %s\n", cursor, checked, project.Name)
+		fmt.Fprintf(&s, "%s [%s] %s (%.1fMB)\n", cursor, checked, project.Name, project.NodeModulesSize)
 	}
 
 	v := tea.NewView(s.String())
@@ -120,13 +120,13 @@ func main() {
 				parentPath := filepath.Dir(path)
 				projectName := filepath.Base(parentPath)
 				hasNodeModules := true
-				var nodeModulesSize int64
+				var nodeModulesSize float64
 
-				nodeModulesInfo, err := os.Stat(parentPath + "/node_modules")
+				_, err := os.Stat(parentPath + "/node_modules")
 				if err != nil {
 					hasNodeModules = false
 				} else {
-					nodeModulesSize = nodeModulesInfo.Size()
+					nodeModulesSize = dirSizeMB(parentPath + "/node_modules")
 				}
 
 				project := NodeProject{
@@ -166,4 +166,24 @@ func deleteAllInPath(path string) error {
 		return err
 	}
 	return os.RemoveAll(path)
+}
+
+func dirSizeMB(path string) float64 {
+	var dirSizeBytes int64 = 0
+
+	_ = filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
+		if !d.IsDir() {
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			dirSizeBytes += info.Size()
+		}
+
+		return nil
+	})
+
+	sizeMB := float64(dirSizeBytes) / 1024.0 / 1024.0
+
+	return sizeMB
 }
