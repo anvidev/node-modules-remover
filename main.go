@@ -7,7 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	tea "charm.land/bubbletea/v2"
 )
+
+type Model struct {
+	projects []NodeProject
+
+	cursor   int
+	selected map[int]struct{}
+}
 
 type NodeProject struct {
 	Name            string
@@ -17,11 +26,74 @@ type NodeProject struct {
 	ErrorMessage    string
 }
 
-func main() {
-	root := "."
-	clean := false
+func (m Model) Init() tea.Cmd {
+	return nil
+}
 
-	nodeProjects := []NodeProject{}
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+
+	case tea.KeyPressMsg:
+
+		switch msg.String() {
+
+		case "ctrl+c", "q":
+			return m, tea.Quit
+
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+
+		case "down", "j":
+			if m.cursor < len(m.projects) {
+				m.cursor++
+			}
+
+		case "space":
+			_, selected := m.selected[m.cursor]
+			if selected {
+				delete(m.selected, m.cursor)
+			} else {
+				m.selected[m.cursor] = struct{}{}
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) View() tea.View {
+	var s strings.Builder
+
+	s.WriteString("Select projects to delete node modules\n\n")
+
+	for i, project := range m.projects {
+		cursor := " "
+		if m.cursor == i {
+			cursor = ">"
+		}
+
+		checked := " "
+		if _, selected := m.selected[i]; selected {
+			checked = "x"
+		}
+
+		fmt.Fprintf(&s, "%s [%s] %s\n", cursor, checked, project.Name)
+	}
+
+	v := tea.NewView(s.String())
+	v.AltScreen = true
+	return v
+}
+
+func main() {
+	m := Model{
+		projects: make([]NodeProject, 0),
+		selected: make(map[int]struct{}),
+	}
+
+	root := "."
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if !isIgnoredFileDir(path) && strings.Contains(path, "package.json") {
@@ -44,8 +116,7 @@ func main() {
 				NodeModulesSize: nodeModulesSize,
 			}
 
-			nodeProjects = append(nodeProjects, project)
-			fmt.Printf("project: %+v\n", project)
+			m.projects = append(m.projects, project)
 			return filepath.SkipDir
 		}
 		return nil
@@ -54,12 +125,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if clean {
-		for _, project := range nodeProjects {
-			if err := deleteAllInPath(project.RelativePath + "/node_modules"); err != nil {
-				log.Fatal("remove project error", err)
-			}
-		}
+	_, err = tea.NewProgram(m).Run()
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
