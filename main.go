@@ -9,6 +9,11 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
+
+var (
+	headingStyle = lipgloss.NewStyle().Background(lipgloss.Color("#417E38")).Foreground(lipgloss.White).Bold(true)
 )
 
 type ProjectDiscoveredMsg struct {
@@ -121,12 +126,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() tea.View {
 	var s strings.Builder
 
-	discovering := "discovering"
-	if !m.discovering {
-		discovering = "finished"
+	s.WriteString(headingStyle.Render("node-modules-remover"))
+	s.WriteString("\n\n")
+
+	if m.discovering {
+		fmt.Fprint(&s, "Finding node projects...")
+	} else {
+		fmt.Fprint(&s, "Pick projects to clean up")
 	}
 
-	fmt.Fprintf(&s, "Select projects to delete node modules [%s]\n\n", discovering)
+	s.WriteString("\n\n")
 
 	if m.errMsg != "" {
 		fmt.Fprintf(&s, "Encountered an error: %s\n\n", m.errMsg)
