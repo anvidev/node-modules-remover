@@ -10,3 +10,9 @@ tasks:
     desc: Build binary
     cmds:
       - go build -o bin/{{.BINARY_NAME}}
+  install:
+      cmds:
+        - go build -o {{.GOPATH}}/bin/nmr .
+      vars:
+        GOPATH:
+          sh: go env GOPATH
