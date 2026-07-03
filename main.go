@@ -15,7 +15,8 @@ import (
 
 var (
 	styleContainer = lipgloss.NewStyle().Padding(0, 1)
-	stylePurple    = lipgloss.NewStyle().Foreground(lipgloss.Color("#7F77DD"))
+	styleHeader    = lipgloss.NewStyle().Foreground(lipgloss.Color("#7F77DD"))
+	styleError     = lipgloss.NewStyle().Foreground(lipgloss.Color("#f70000"))
 	styleDimmed    = lipgloss.NewStyle().Foreground(lipgloss.Color("#5f5e5a"))
 	styleTotal     = lipgloss.NewStyle().Foreground(lipgloss.Color("#1d9e75"))
 	styleCursor    = lipgloss.NewStyle().Foreground(lipgloss.Color("#378add"))
@@ -31,58 +32,56 @@ const (
 	modeBrowse
 	modeDeleting
 	modeSelecting
+	modeError
 )
 
-type ProjectDiscoveredMsg struct {
-	project NodeProject
+type projectFoundMsg struct {
+	project nodeProject
 }
-type DicoveryDoneMsg struct{}
-type DiscoveryErrorMsg struct {
-	errMsg string
-}
-type ProjectNodeModuleSize struct {
-	ProjectPath string
-	Size        float64
-}
-type ProjectNodeModuleSizeErrMsg struct {
-	ProjectPath string
-	ErrMsg      string
-}
-type deleteFinishedMsg struct {
-	Index int
+type searchingDoneMsg struct{}
+
+type nodeModulesSizeMsg struct {
+	path string
+	size float64
 }
 
-type Model struct {
-	discovering bool
-	projects    []NodeProject
+type deleteFinishedMsg struct {
+	index int
+}
+
+type errMsg struct {
+	err  error
+	path *string
+}
+
+type model struct {
+	projects []nodeProject
 
 	cursor   int
 	selected map[int]struct{}
-
-	errMsg   string
-	flashMsg string
 
 	mode    mode
 	msg     string
 	spinner spinner.Model
 }
 
-type NodeProject struct {
-	ProjectPath     string
-	HasNodeModules  bool
-	NodeModulesSize float64
-	ErrorMessage    string
-	SizeKnown       bool
-	Deleting        bool
+type nodeProject struct {
+	path            string
+	nodeModulesSize float64
+	hasNodeModules  bool
+	sizeKnown       bool
+	deleting        bool
 }
 
-func (m Model) Init() tea.Cmd {
+func (m model) Init() tea.Cmd {
 	return m.spinner.Tick
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	var cmds []tea.Cmd
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
 
 	switch msg := msg.(type) {
 
@@ -90,38 +89,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
 
-	case ProjectDiscoveredMsg:
+	case projectFoundMsg:
 		m.projects = append(m.projects, msg.project)
 
-	case DicoveryDoneMsg:
-		m.discovering = false
+	case searchingDoneMsg:
 		m.mode = modeBrowse
 
-	case DiscoveryErrorMsg:
-		m.errMsg = msg.errMsg
-
-	case ProjectNodeModuleSize:
+	case nodeModulesSizeMsg:
 		for i := range m.projects {
-			if m.projects[i].ProjectPath == msg.ProjectPath {
-				m.projects[i].NodeModulesSize = msg.Size
-				m.projects[i].SizeKnown = true
+			if m.projects[i].path == msg.path {
+				m.projects[i].nodeModulesSize = msg.size
+				m.projects[i].sizeKnown = true
 			}
 		}
 
 	case deleteFinishedMsg:
-		delete(m.selected, msg.Index)
-		m.projects[msg.Index].HasNodeModules = false
-		m.projects[msg.Index].NodeModulesSize = 0
+		delete(m.selected, msg.index)
+		m.projects[msg.index].hasNodeModules = false
+		m.projects[msg.index].nodeModulesSize = 0
 		if len(m.selected) == 0 {
 			m.mode = modeBrowse
 		}
 
-	case ProjectNodeModuleSizeErrMsg:
-		for i := range m.projects {
-			if m.projects[i].ProjectPath == msg.ProjectPath {
-				m.projects[i].ErrorMessage = msg.ErrMsg
-			}
-		}
+	case errMsg:
+		m.mode = modeError
+		m.msg = msg.err.Error()
 
 	case tea.KeyPressMsg:
 
@@ -131,12 +123,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up", "k":
-			if m.cursor > 0 {
+			if m.cursor > 0 && m.mode == modeBrowse {
 				m.cursor--
 			}
 
 		case "down", "j":
-			if m.cursor < len(m.projects)-1 {
+			if m.cursor < len(m.projects)-1 && m.mode == modeBrowse {
 				m.cursor++
 			}
 
@@ -155,22 +147,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.mode = modeDeleting
 			for i := range m.selected {
-				if m.projects[i].HasNodeModules {
-					m.projects[i].Deleting = true
+				if m.projects[i].hasNodeModules {
+					m.projects[i].deleting = true
 					cmds = append(cmds, m.deleteCmd(i))
 				}
 			}
-			m.errMsg = ""
 		}
 	}
 
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) View() tea.View {
+func (m model) View() tea.View {
 	var s strings.Builder
 
-	s.WriteString(stylePurple.Render("node-modules-remover"))
+	s.WriteString(styleHeader.Render("node-modules-remover"))
 	s.WriteString("\n\n")
 
 	switch m.mode {
@@ -180,7 +171,7 @@ func (m Model) View() tea.View {
 	case modeSelecting:
 		totalSize := 0.0
 		for i := range m.selected {
-			totalSize += m.projects[i].NodeModulesSize
+			totalSize += m.projects[i].nodeModulesSize
 		}
 		s.WriteString(styleDimmed.Render("Total selected: "))
 		s.WriteString(styleTotal.Render(fmt.Sprintf("%.f MB", totalSize)))
@@ -189,6 +180,8 @@ func (m Model) View() tea.View {
 		s.WriteString(m.spinner.View())
 	case modeBrowse:
 		s.WriteString(styleDimmed.Render("Pick projects to clean up"))
+	case modeError:
+		s.WriteString(styleError.Render(m.msg))
 	}
 
 	s.WriteString("\n\n")
@@ -205,24 +198,23 @@ func (m Model) View() tea.View {
 }
 
 func main() {
-	m := Model{
-		mode:        modeSearching,
-		discovering: true,
-		projects:    make([]NodeProject, 0),
-		selected:    make(map[int]struct{}),
-		spinner:     spinner.New(spinner.WithSpinner(spinner.Dot)),
+	m := model{
+		mode:     modeSearching,
+		projects: make([]nodeProject, 0),
+		selected: make(map[int]struct{}),
+		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
 
 	p := tea.NewProgram(m)
 
-	go findAndNotifyNodeProjects(".", p.Send)
+	go searchAndNotifyNodeProjects(".", p.Send)
 
 	if _, err := p.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func findAndNotifyNodeProjects(root string, notify func(tea.Msg)) {
+func searchAndNotifyNodeProjects(root string, notify func(tea.Msg)) {
 	walkFunc := func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -240,27 +232,27 @@ func findAndNotifyNodeProjects(root string, notify func(tea.Msg)) {
 				hasNodeModules = false
 			}
 
-			project := NodeProject{
-				ProjectPath:    projectPath,
-				HasNodeModules: hasNodeModules,
+			project := nodeProject{
+				path:           projectPath,
+				hasNodeModules: hasNodeModules,
 			}
 
-			notify(ProjectDiscoveredMsg{project})
+			notify(projectFoundMsg{project})
 
-			if project.HasNodeModules {
-				go func(p *NodeProject, notify func(tea.Msg)) {
-					size, err := dirSizeMB(filepath.Join(p.ProjectPath, "node_modules"))
+			if project.hasNodeModules {
+				go func(p *nodeProject, notify func(tea.Msg)) {
+					size, err := dirSizeMB(filepath.Join(p.path, "node_modules"))
 					if err != nil {
-						notify(ProjectNodeModuleSizeErrMsg{
-							ProjectPath: p.ProjectPath,
-							ErrMsg:      err.Error(),
+						notify(errMsg{
+							path: &p.path,
+							err:  err,
 						})
 						return
 					}
 
-					notify(ProjectNodeModuleSize{
-						ProjectPath: p.ProjectPath,
-						Size:        size,
+					notify(nodeModulesSizeMsg{
+						path: p.path,
+						size: size,
 					})
 				}(&project, notify)
 			}
@@ -272,10 +264,10 @@ func findAndNotifyNodeProjects(root string, notify func(tea.Msg)) {
 	}
 
 	if err := filepath.WalkDir(root, walkFunc); err != nil {
-		notify(DiscoveryErrorMsg{errMsg: err.Error()})
+		notify(errMsg{err: err})
 	}
 
-	notify(DicoveryDoneMsg{})
+	notify(searchingDoneMsg{})
 }
 
 func isIgnoreDir(d fs.DirEntry) bool {
@@ -288,17 +280,14 @@ func isIgnoreDir(d fs.DirEntry) bool {
 	return ignoredDirNames[d.Name()]
 }
 
-func deleteAllInPath(path string) error {
-	if _, err := os.Stat(path); err != nil {
-		return err
-	}
-	return os.RemoveAll(path)
-}
-
 func dirSizeMB(path string) (float64, error) {
 	var dirSizeBytes int64 = 0
 
 	walkFunc := func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
 		if !d.IsDir() {
 			info, err := d.Info()
 			if err != nil {
@@ -319,7 +308,7 @@ func dirSizeMB(path string) (float64, error) {
 	return sizeMB, nil
 }
 
-func renderRow(p NodeProject, isCursor, isSelected bool, sp spinner.Model) string {
+func renderRow(p nodeProject, isCursor, isSelected bool, sp spinner.Model) string {
 	cursor := " "
 	if isCursor {
 		cursor = styleCursor.Render(">")
@@ -331,18 +320,18 @@ func renderRow(p NodeProject, isCursor, isSelected bool, sp spinner.Model) strin
 
 	var size string
 	switch {
-	case !p.HasNodeModules:
+	case !p.hasNodeModules:
 		size = styleDimmed.Render("—")
-	case !p.SizeKnown:
+	case !p.sizeKnown:
 		size = sp.View()
-	case p.Deleting:
+	case p.deleting:
 		size = sp.View()
 	default:
-		size = sizeStyle(p.NodeModulesSize, p.HasNodeModules, p.SizeKnown).Render(fmt.Sprintf("%.1f MB", p.NodeModulesSize))
+		size = sizeStyle(p.nodeModulesSize, p.hasNodeModules, p.sizeKnown).Render(fmt.Sprintf("%.1f MB", p.nodeModulesSize))
 	}
 
-	line := fmt.Sprintf("%s %s %-30s %s", cursor, checked, p.ProjectPath, size)
-	if !p.HasNodeModules {
+	line := fmt.Sprintf("%s %s %-30s %s", cursor, checked, p.path, size)
+	if !p.hasNodeModules {
 		return styleDimmed.Render(line)
 	}
 	return line
@@ -354,20 +343,20 @@ func sizeStyle(mb float64, hasNodeModules bool, sizeKnown bool) lipgloss.Style {
 		return styleDimmed
 	case !sizeKnown:
 		return styleDimmed
-	case mb >= 500:
-		return styleMid
 	case mb >= 1000:
 		return styleHigh
+	case mb >= 500:
+		return styleMid
 	default:
 		return styleLow
 	}
 }
 
-func (m *Model) deleteCmd(i int) tea.Cmd {
-	m.projects[i].Deleting = true
+func (m model) deleteCmd(i int) tea.Cmd {
+	m.projects[i].deleting = true
 	return func() tea.Msg {
-		if err := deleteAllInPath(filepath.Join(m.projects[i].ProjectPath, "node_modules")); err == nil {
-			return deleteFinishedMsg{Index: i}
+		if err := os.RemoveAll(filepath.Join(m.projects[i].path, "node_modules")); err == nil {
+			return deleteFinishedMsg{index: i}
 		}
 		return nil
 	}
