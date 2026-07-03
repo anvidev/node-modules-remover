@@ -14,7 +14,6 @@ import (
 type ProjectDiscoveredMsg struct {
 	project NodeProject
 }
-
 type DicoveryDoneMsg struct{}
 type DiscoveryErrorMsg struct {
 	errMsg string
@@ -89,7 +88,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down", "j":
-			if m.cursor < len(m.projects) {
+			if m.cursor < len(m.projects)-1 {
 				m.cursor++
 			}
 
