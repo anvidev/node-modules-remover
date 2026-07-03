@@ -130,7 +130,12 @@ func (m Model) View() tea.View {
 			checked = "x"
 		}
 
-		fmt.Fprintf(&s, "%s [%s] %s (%.1fMB)\n", cursor, checked, project.ProjectPath, project.NodeModulesSize)
+		errMsg := "This is very very long error message that I should definately handle somehow but now right now"
+		if project.ErrorMessage != "" {
+			errMsg = project.ErrorMessage
+		}
+
+		fmt.Fprintf(&s, "%s [%s] %s (%.1fMB) %s\n", cursor, checked, project.ProjectPath, project.NodeModulesSize, truncate(errMsg, 50))
 	}
 
 	v := tea.NewView(s.String())
@@ -247,4 +252,12 @@ func dirSizeMB(path string) (float64, error) {
 	sizeMB := float64(dirSizeBytes) / 1024.0 / 1024.0
 
 	return sizeMB, nil
+}
+
+func truncate(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "..."
 }
