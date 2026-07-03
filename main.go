@@ -35,7 +35,8 @@ type Model struct {
 	cursor   int
 	selected map[int]struct{}
 
-	errMsg string
+	errMsg   string
+	flashMsg string
 }
 
 type NodeProject struct {
@@ -99,6 +100,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.selected[m.cursor] = struct{}{}
 			}
+
+		case "enter":
+			var totalRemoved float64 = 0
+			for i := range m.selected {
+				if m.projects[i].HasNodeModules {
+					deleteAllInPath(m.projects[i].ProjectPath + "/node_modules")
+					totalRemoved += m.projects[i].NodeModulesSize
+					m.projects[i].NodeModulesSize = 0
+				}
+			}
+			m.flashMsg = fmt.Sprintf("Total removed: %.1f", totalRemoved)
+			m.errMsg = ""
+			m.selected = make(map[int]struct{})
 		}
 	}
 
@@ -119,6 +133,10 @@ func (m Model) View() tea.View {
 		fmt.Fprintf(&s, "Encountered an error: %s\n\n", m.errMsg)
 	}
 
+	if m.flashMsg != "" {
+		fmt.Fprintf(&s, "%s\n\n", m.flashMsg)
+	}
+
 	for i, project := range m.projects {
 		cursor := " "
 		if m.cursor == i {
@@ -130,7 +148,7 @@ func (m Model) View() tea.View {
 			checked = "x"
 		}
 
-		errMsg := "This is very very long error message that I should definately handle somehow but now right now"
+		errMsg := ""
 		if project.ErrorMessage != "" {
 			errMsg = project.ErrorMessage
 		}
@@ -184,21 +202,23 @@ func findAndNotifyNodeProjects(root string, notify func(tea.Msg)) {
 
 			notify(ProjectDiscoveredMsg{project})
 
-			go func(p *NodeProject, notify func(tea.Msg)) {
-				size, err := dirSizeMB(p.ProjectPath + "/node_modules")
-				if err != nil {
-					notify(ProjectNodeModuleSizeErrMsg{
-						ProjectPath: p.ProjectPath,
-						ErrMsg:      err.Error(),
-					})
-					return
-				}
+			if project.HasNodeModules {
+				go func(p *NodeProject, notify func(tea.Msg)) {
+					size, err := dirSizeMB(p.ProjectPath + "/node_modules")
+					if err != nil {
+						notify(ProjectNodeModuleSizeErrMsg{
+							ProjectPath: p.ProjectPath,
+							ErrMsg:      err.Error(),
+						})
+						return
+					}
 
-				notify(ProjectNodeModuleSize{
-					ProjectPath: p.ProjectPath,
-					Size:        size,
-				})
-			}(&project, notify)
+					notify(ProjectNodeModuleSize{
+						ProjectPath: p.ProjectPath,
+						Size:        size,
+					})
+				}(&project, notify)
+			}
 
 			return filepath.SkipDir
 		}
