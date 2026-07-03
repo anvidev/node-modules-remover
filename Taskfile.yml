@@ -2,9 +2,11 @@
 
 version: '3'
 
+vars:
+  BINARY_NAME: nmr
+
 tasks:
   build:
-    desc: Build executable
+    desc: Build binary
     cmds:
-      - go build -o bin/nmr
-    silent: true
+      - go build -o bin/{{.BINARY_NAME}}
