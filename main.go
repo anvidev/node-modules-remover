@@ -123,12 +123,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up", "k":
-			if m.cursor > 0 && m.mode == modeBrowse {
+			if m.cursor > 0 {
 				m.cursor--
 			}
 
 		case "down", "j":
-			if m.cursor < len(m.projects)-1 && m.mode == modeBrowse {
+			if m.cursor < len(m.projects)-1 {
 				m.cursor++
 			}
 
